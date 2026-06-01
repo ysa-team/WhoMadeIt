@@ -1,7 +1,8 @@
 import streamlit as st
-import tensorflow as tf
 import numpy as np
 from PIL import Image
+from pathlib import Path
+import sys
 
 st.set_page_config(
     page_title="Deepfake Tespit Sistemi",
@@ -21,12 +22,7 @@ st.warning(
     "Bu sonuç, eğitilen CNN modelinin olasılıksal tahminidir."
 )
 
-@st.cache_resource
-def load_cnn_model():
-    model = tf.keras.models.load_model("deepfake_multiclass_cnn_final.keras")
-    return model
-
-model = load_cnn_model()
+MODEL_PATH = Path("deepfake_multiclass_cnn_final.keras")
 
 IMG_SIZE = 128
 
@@ -43,6 +39,24 @@ class_names = [
     "StyleGAN"
 ]
 
+def get_startup_error():
+    if sys.version_info >= (3, 13):
+        return (
+            "Bu ortam Python 3.13 kullanıyor. TensorFlow bu projede Python 3.13 ile "
+            "model yüklerken çöküyor. Python 3.11 ile sanal ortam oluşturup çalıştırın."
+        )
+
+    if not MODEL_PATH.exists():
+        return f"Model dosyası bulunamadı: {MODEL_PATH}"
+
+    return None
+
+@st.cache_resource
+def load_cnn_model():
+    import tensorflow as tf
+
+    return tf.keras.models.load_model(MODEL_PATH)
+
 def preprocess_image(image):
     image = image.convert("RGB")
     image = image.resize((IMG_SIZE, IMG_SIZE))
@@ -52,6 +66,29 @@ def preprocess_image(image):
     image_array = np.expand_dims(image_array, axis=0)
 
     return image_array
+
+startup_error = get_startup_error()
+model = None
+
+if startup_error:
+    st.error("Model şu an çalıştırılamıyor.")
+    st.warning(startup_error)
+    st.info(
+        "Terminalde sırasıyla şunları çalıştırın: "
+        "`python3.11 -m venv .venv`, "
+        "`source .venv/bin/activate`, "
+        "`pip install -r requirements.txt`, "
+        "`streamlit run app.py`."
+    )
+else:
+    try:
+        model = load_cnn_model()
+    except Exception as exc:
+        st.error("Model yüklenemedi.")
+        st.warning(str(exc))
+        st.info(
+            "Bağımlılıkları temiz bir Python 3.11 sanal ortamında tekrar kurmayı deneyin."
+        )
 
 uploaded_file = st.file_uploader(
     "Bir görsel yükleyin",
@@ -68,6 +105,9 @@ if uploaded_file is not None:
     )
 
     if st.button("Tahmin Et"):
+        if model is None:
+            st.stop()
+
         processed_image = preprocess_image(image)
 
         prediction = model.predict(processed_image)
